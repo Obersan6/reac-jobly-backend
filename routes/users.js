@@ -1,3 +1,4 @@
+
 "use strict";
 
 /** Routes for users. */
@@ -6,7 +7,7 @@ const jsonschema = require("jsonschema");
 
 const express = require("express");
 const { ensureCorrectUserOrAdmin, ensureAdmin } = require("../middleware/auth");
-const { BadRequestError } = require("../expressError");
+const { BadRequestError, UnauthorizedError } = require("../expressError");
 const User = require("../models/user");
 const { createToken } = require("../helpers/tokens");
 const userNewSchema = require("../schemas/userNew.json");
@@ -14,21 +15,27 @@ const userUpdateSchema = require("../schemas/userUpdate.json");
 
 const router = express.Router();
 
+/** DEBUG: Log request body for debugging */
+router.use((req, res, next) => {
+  console.log(`Incoming request: ${req.method} ${req.path}`, req.body);
+  next();
+});
 
 /** POST / { user }  => { user, token }
  *
- * Adds a new user. This is not the registration endpoint --- instead, this is
- * only for admin users to add new users. The new user being added can be an
- * admin.
+ * Adds a new user. This is NOT the registration endpoint.  
+ * Instead, this is for admin users to manually add new users.  
+ * The new user being added can be an admin.
  *
- * This returns the newly created user and an authentication token for them:
- *  {user: { username, firstName, lastName, email, isAdmin }, token }
+ * Returns {user: { username, firstName, lastName, email, isAdmin }, token }
  *
  * Authorization required: admin
  **/
 
 router.post("/", ensureAdmin, async function (req, res, next) {
   try {
+    console.log("Registering new user:", req.body.username);
+
     const validator = jsonschema.validate(req.body, userNewSchema);
     if (!validator.valid) {
       const errs = validator.errors.map(e => e.stack);
@@ -37,12 +44,14 @@ router.post("/", ensureAdmin, async function (req, res, next) {
 
     const user = await User.register(req.body);
     const token = createToken(user);
+
+    console.log("Successfully registered user:", user.username);
     return res.status(201).json({ user, token });
   } catch (err) {
+    console.error("Registration failed:", err);
     return next(err);
   }
 });
-
 
 /** GET / => { users: [ {username, firstName, lastName, email }, ... ] }
  *
@@ -60,7 +69,6 @@ router.get("/", ensureAdmin, async function (req, res, next) {
   }
 });
 
-
 /** GET /[username] => { user }
  *
  * Returns { username, firstName, lastName, isAdmin, jobs }
@@ -77,7 +85,6 @@ router.get("/:username", ensureCorrectUserOrAdmin, async function (req, res, nex
     return next(err);
   }
 });
-
 
 /** PATCH /[username] { user } => { user }
  *
@@ -104,7 +111,6 @@ router.patch("/:username", ensureCorrectUserOrAdmin, async function (req, res, n
   }
 });
 
-
 /** DELETE /[username]  =>  { deleted: username }
  *
  * Authorization required: admin or same-user-as-:username
@@ -119,6 +125,33 @@ router.delete("/:username", ensureCorrectUserOrAdmin, async function (req, res, 
   }
 });
 
+/** POST /auth/token { username, password }  => { token }
+ *
+ * Returns JWT token which can be used for authentication.  
+ * This is the login route.
+ *
+ * Authorization required: none
+ **/
+
+router.post("/auth/token", async function (req, res, next) {
+  try {
+    console.log("Attempting login for:", req.body.username);
+
+    if (!req.body.username || !req.body.password) {
+      throw new BadRequestError("Missing username or password");
+    }
+
+    const user = await User.authenticate(req.body.username, req.body.password);
+
+    console.log("Successfully authenticated:", user.username);
+
+    const token = createToken(user);
+    return res.json({ token });
+  } catch (err) {
+    console.error("Login failed:", err);
+    return next(err);
+  }
+});
 
 /** POST /[username]/jobs/[id]  { state } => { application }
  *
@@ -136,6 +169,5 @@ router.post("/:username/jobs/:id", ensureCorrectUserOrAdmin, async function (req
     return next(err);
   }
 });
-
 
 module.exports = router;

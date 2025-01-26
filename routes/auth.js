@@ -21,20 +21,25 @@ const { BadRequestError } = require("../expressError");
 
 router.post("/token", async function (req, res, next) {
   try {
-    const validator = jsonschema.validate(req.body, userAuthSchema);
-    if (!validator.valid) {
-      const errs = validator.errors.map(e => e.stack);
-      throw new BadRequestError(errs);
+    console.log("Login Attempt:", req.body);
+
+    if (!req.body.username || !req.body.password) {
+      console.error("Missing username or password!");
+      throw new BadRequestError("Missing username or password");
     }
 
-    const { username, password } = req.body;
-    const user = await User.authenticate(username, password);
+    const user = await User.authenticate(req.body.username, req.body.password);
+    
+    console.log("User authenticated successfully:", user.username);
     const token = createToken(user);
+
     return res.json({ token });
   } catch (err) {
+    console.error("Login failed:", err);
     return next(err);
   }
 });
+
 
 
 /** POST /auth/register:   { user } => { token }
